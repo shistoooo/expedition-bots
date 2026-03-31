@@ -1,0 +1,25 @@
+{
+  "name": "expedition-bots",
+  "version": "1.0.0",
+  "description": "Discord bots for Expedition HQ — Command, Wallet, Studio, Sales",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "start:command": "node dist/start-command.js",
+    "start:wallet": "node dist/start-wallet.js",
+    "start:studio": "node dist/start-studio.js",
+    "start:sales": "node dist/start-sales.js",
+    "dev:command": "npx tsx src/start-command.ts",
+    "dev:wallet": "npx tsx src/start-wallet.ts",
+    "dev:studio": "npx tsx src/start-studio.ts",
+    "dev:sales": "npx tsx src/start-sales.ts"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.2"
+  }
+}
