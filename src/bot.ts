@@ -110,19 +110,19 @@ export class ExpeditionBot {
         senderType: 'user',
       };
 
+      const channel = message.channel as TextChannel | DMChannel;
+      let typingInterval: ReturnType<typeof setInterval> | null = null;
+
       try {
         // Show typing indicator
-        const channel = message.channel as TextChannel | DMChannel;
         await channel.sendTyping();
 
         // Keep typing alive during brain call (typing expires after 10s)
-        const typingInterval = setInterval(() => {
+        typingInterval = setInterval(() => {
           channel.sendTyping().catch(() => {});
         }, 8_000);
 
         const response = await callBrain(input);
-
-        clearInterval(typingInterval);
 
         if (!response.responseText) {
           console.warn(`[${this.config.botName}] Empty response from brain`);
@@ -139,6 +139,8 @@ export class ExpeditionBot {
         try {
           await message.reply(`Erreur de traitement. Reessaie dans quelques secondes.`);
         } catch { /* ignore reply error */ }
+      } finally {
+        if (typingInterval) clearInterval(typingInterval);
       }
     });
 
@@ -158,6 +160,8 @@ export class ExpeditionBot {
       }));
     }).listen(port, () => {
       console.log(`[${this.config.botName}] Health check on port ${port}`);
+    }).on('error', (err: Error) => {
+      console.error(`[${this.config.botName}] HTTP listen error:`, err.message);
     });
   }
 }
