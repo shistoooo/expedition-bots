@@ -12,7 +12,9 @@
     "dev:command": "npx tsx src/start-command.ts",
     "dev:wallet": "npx tsx src/start-wallet.ts",
     "dev:studio": "npx tsx src/start-studio.ts",
-    "dev:sales": "npx tsx src/start-sales.ts"
+    "dev:sales": "npx tsx src/start-sales.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "discord.js": "^14.16.3",
@@ -20,6 +22,7 @@
   },
   "devDependencies": {
     "tsx": "^4.19.0",
-    "typescript": "^5.6.2"
+    "typescript": "^5.6.2",
+    "vitest": "^4.1.2"
   }
 }
