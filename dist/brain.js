@@ -6,7 +6,7 @@ const BRAIN_URL = process.env.BRAIN_URL || 'https://melifeos.vercel.app/api/agen
 const AGENT_BRAIN_SECRET = process.env.AGENT_BRAIN_SECRET || '';
 async function callBrain(input) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30_000);
+    const timeout = setTimeout(() => controller.abort(), 55_000);
     try {
         const res = await fetch(BRAIN_URL, {
             method: 'POST',

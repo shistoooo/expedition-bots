@@ -30,7 +30,7 @@ const AGENT_BRAIN_SECRET = process.env.AGENT_BRAIN_SECRET || '';
 
 export async function callBrain(input: BrainInput): Promise<BrainResponse> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30_000);
+  const timeout = setTimeout(() => controller.abort(), 55_000);
 
   try {
     const res = await fetch(BRAIN_URL, {
