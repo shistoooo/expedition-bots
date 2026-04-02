@@ -7,6 +7,7 @@ export declare class ExpeditionBot {
     private guild;
     constructor(config: BotConfig);
     private postInChannel;
-    private executeMission;
+    private replyTo;
+    private handleTask;
     start(): Promise<void>;
 }
