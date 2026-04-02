@@ -7,3 +7,4 @@ export interface BotConfig {
 export declare const BOT_CONFIGS: Record<string, BotConfig>;
 export declare const GUILD_ID: string;
 export declare const MOHAMED_USER_ID: string;
+export declare const AGENT_CHANNELS: Record<string, string>;

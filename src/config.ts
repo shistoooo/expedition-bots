@@ -36,3 +36,13 @@ export const BOT_CONFIGS: Record<string, BotConfig> = {
 
 export const GUILD_ID = process.env.EXPEDITION_HQ_GUILD_ID || '1488262277009379341';
 export const MOHAMED_USER_ID = process.env.DISCORD_MOHAMED_USER_ID || '1455949646705987702';
+
+// Mapping agent name → Discord channel name (for cross-agent posting)
+export const AGENT_CHANNELS: Record<string, string> = {
+  studio: 'youtube',
+  sales: 'sales',
+  wallet: 'wallet',
+  samus: 'général',
+  samsam: 'support',
+  command: 'briefing',
+};
