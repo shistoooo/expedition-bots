@@ -94,9 +94,16 @@ export class ExpeditionBot {
       const isDM = !message.guild;
       const isTargetChannel = message.channel.id === this.targetChannelId;
 
+      // Debug log for message routing
+      if (!isDM) {
+        console.log(`[${this.config.botName}] Message in #${(message.channel as TextChannel).name} (${message.channel.id}) from ${message.author.username}: "${message.content.slice(0, 50)}..." | target=${this.targetChannelId} | match=${isTargetChannel}`);
+      }
+
       // Only respond in target channel or DMs from Mohamed
       if (!isDM && !isTargetChannel) return;
       if (isDM && message.author.id !== MOHAMED_USER_ID) return;
+
+      console.log(`[${this.config.botName}] Processing message from ${message.author.username}`);
 
       // Build brain input
       const input: BrainInput = {
