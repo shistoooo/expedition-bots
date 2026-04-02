@@ -106,23 +106,31 @@ export class ExpeditionBot {
 
       // Step 3: Call brain as the target agent WITH the original user message
       console.log(`${tag} Calling brain as ${delegateTo}...`);
-      const delegatedResponse = await callBrain({
-        ...input,
-        agentId: delegateTo,
-        content: input.content, // Pass the ORIGINAL user request, not Command's delegation text
-        senderType: 'agent',
-        senderId: 'command',
-        senderName: 'Command',
-      });
+      try {
+        const delegatedResponse = await callBrain({
+          ...input,
+          agentId: delegateTo,
+          content: input.content, // Pass the ORIGINAL user request, not Command's delegation text
+          senderType: 'agent',
+          senderId: 'command',
+          senderName: 'Command',
+        });
 
-      if (delegatedResponse.responseText) {
-        // Post agent's response in their channel (visible communication)
-        await this.postInChannel(targetChannel, `💬 **${delegateTo}:** ${delegatedResponse.responseText}`);
+        if (delegatedResponse.responseText) {
+          // Post agent's response in their channel (visible communication)
+          await this.postInChannel(targetChannel, `💬 **${delegateTo}:** ${delegatedResponse.responseText}`);
 
-        // Report back to user
-        await this.replyTo(message, `📋 **${delegateTo} a repondu :**\n${delegatedResponse.responseText}`);
-      } else {
-        await this.replyTo(message, `${delegateTo} n'a pas pu repondre.`);
+          // Report back to user
+          await this.replyTo(message, `📋 **${delegateTo} a repondu :**\n${delegatedResponse.responseText}`);
+        } else {
+          console.warn(`${tag} Empty response from ${delegateTo}`);
+          await this.postInChannel(targetChannel, `⚠️ **${delegateTo}** n'a pas pu traiter la demande (timeout)`);
+          await this.replyTo(message, `⚠️ **${delegateTo}** n'a pas pu traiter cette demande — elle est trop complexe pour un seul appel. Essaie de la simplifier (ex: "5 sujets" au lieu de "30").`);
+        }
+      } catch (delegateErr) {
+        console.error(`${tag} Delegation to ${delegateTo} failed:`, delegateErr);
+        await this.postInChannel(targetChannel, `❌ Erreur lors de la delegation Command → ${delegateTo}`);
+        await this.replyTo(message, `⚠️ **${delegateTo}** n'a pas repondu (timeout). La requete est peut-etre trop lourde — essaie avec moins d'elements.`);
       }
     } else {
       // No delegation — direct response from this agent

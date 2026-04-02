@@ -30,7 +30,8 @@ const AGENT_BRAIN_SECRET = process.env.AGENT_BRAIN_SECRET || '';
 
 export async function callBrain(input: BrainInput): Promise<BrainResponse> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 55_000);
+  // 65s: higher than Vercel's 60s hard kill so we receive the time-guard partial response
+  const timeout = setTimeout(() => controller.abort(), 65_000);
 
   try {
     const res = await fetch(BRAIN_URL, {
