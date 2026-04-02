@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "build": "tsc",
+    "postinstall": "npm run build",
     "start:command": "node dist/start-command.js",
     "start:wallet": "node dist/start-wallet.js",
     "start:studio": "node dist/start-studio.js",
