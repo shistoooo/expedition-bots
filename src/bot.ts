@@ -296,10 +296,7 @@ export class ExpeditionBot {
       }
     });
 
-    // --- Login ---
-    await this.client.login(this.token);
-
-    // --- Health check ---
+    // --- Health check FIRST (Railway needs this before Discord login) ---
     const port = process.env.PORT || 3000;
     const startTime = Date.now();
     http.createServer((_req, res) => {
@@ -310,5 +307,8 @@ export class ExpeditionBot {
     }).on('error', (err: Error) => {
       console.error(`[${this.config.botName}] HTTP error:`, err.message);
     });
+
+    // --- Login ---
+    await this.client.login(this.token);
   }
 }
