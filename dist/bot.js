@@ -37,22 +37,6 @@ function splitMessage(text, maxLength = 2000) {
 }
 // Detect delegation without actual data in response
 const DELEGATION_RE = /(?:transmis|d[ée]l[ée]gu[ée]|demand[ée]|envoy[ée]|consult).*(?:à|a)\s+(Studio|Sales|Wallet|Samus|SamSam)/i;
-// Detect if request is complex enough for Deep Think mode
-const DEEP_THINK_RE = /rapport complet|bilan|analyse compl[eè]te|r[eé]sum[eé] de tout|compare|crois[eé]|tout.*agent|r[eé]flexion profonde|rapport global/i;
-function extractJson(text) {
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match)
-        return null;
-    try {
-        const parsed = JSON.parse(match[0]);
-        if (parsed?.tasks && Array.isArray(parsed.tasks))
-            return parsed;
-        return null;
-    }
-    catch {
-        return null;
-    }
-}
 function detectDelegation(text) {
     const match = text.match(DELEGATION_RE);
     if (!match)
@@ -105,66 +89,6 @@ class ExpeditionBot {
             await message.reply(chunk);
         }
     }
-    // Deep Think mode: decompose → parallel execution → synthesis
-    // Only available for Command bot on Railway (no timeout)
-    async handleDeepThink(message, input) {
-        const tag = `[${this.config.botName}:DeepThink]`;
-        // PHASE 1: PLANIFICATION — ask Command to decompose into subtasks
-        console.log(`${tag} Phase 1: Planning...`);
-        const planResponse = await (0, brain_1.callBrain)({
-            ...input,
-            content: `MODE PLANIFICATION. Decompose cette demande en sous-taches JSON.\nReponds UNIQUEMENT: {"tasks":[{"agent":"nom","question":"question precise"}]}\nMax 5 taches. Demande: ${input.content}`,
-        });
-        const plan = extractJson(planResponse.responseText);
-        if (!plan?.tasks?.length) {
-            console.log(`${tag} No valid plan — falling back to normal flow`);
-            return this.handleTask(message, input);
-        }
-        console.log(`${tag} Plan: ${plan.tasks.length} tasks → ${plan.tasks.map(t => t.agent).join(', ')}`);
-        const agentNames = plan.tasks.map(t => `**${t.agent}**`);
-        await this.replyTo(message, `Je lance ${agentNames.join(', ')} en parallele. Standby.`);
-        // PHASE 2: PARALLEL EXECUTION — call each agent simultaneously
-        console.log(`${tag} Phase 2: Executing ${plan.tasks.length} tasks in parallel...`);
-        const results = await Promise.allSettled(plan.tasks.map(async (task) => {
-            const ch = config_1.AGENT_CHANNELS[task.agent] || task.agent;
-            // Command posts the question naturally in the agent's channel
-            await this.postInChannel(ch, `${task.question}\n\n— *Command*`);
-            const r = await (0, brain_1.callBrain)({
-                ...input,
-                agentId: task.agent,
-                content: task.question,
-                senderType: 'agent',
-                senderId: 'command',
-                senderName: 'Command',
-            });
-            const responseText = r.responseText || 'Pas de reponse';
-            if (r.responseText) {
-                // Agent responds naturally in their own channel
-                await this.postInChannel(ch, r.responseText.slice(0, 1500));
-            }
-            return { agent: task.agent, response: responseText };
-        }));
-        const fulfilled = results
-            .filter((r) => r.status === 'fulfilled')
-            .map(r => r.value);
-        const failed = results.filter(r => r.status === 'rejected').length;
-        console.log(`${tag} Phase 2 done: ${fulfilled.length} OK, ${failed} failed`);
-        if (fulfilled.length === 0) {
-            await this.replyTo(message, '⚠️ Aucun agent n\'a pu repondre. Essaie avec une demande plus simple.');
-            return;
-        }
-        // PHASE 3: SYNTHESIS — Command compiles everything
-        console.log(`${tag} Phase 3: Synthesis...`);
-        const compiled = fulfilled
-            .map(r => `[${r.agent}]: ${r.response}`)
-            .join('\n---\n');
-        const synthesis = await (0, brain_1.callBrain)({
-            ...input,
-            content: `MODE SYNTHESE. Compile en reponse executive structuree.\nDemande originale: ${input.content}\n\nResultats des agents:\n${compiled}\n\nAjoute ton analyse strategique et 3 recommandations concretes.`,
-        });
-        await this.replyTo(message, synthesis.responseText);
-        console.log(`${tag} Done — synthesized ${fulfilled.length} agent responses`);
-    }
     // The main work method — handles delegation, multi-agent calls, PDFs
     // Runs in the bot process (Railway) — NO TIMEOUT
     async handleTask(message, input) {
@@ -181,36 +105,27 @@ class ExpeditionBot {
         if (delegateTo) {
             const targetChannel = config_1.AGENT_CHANNELS[delegateTo] || delegateTo;
             console.log(`${tag} Delegation detected → ${delegateTo} in #${targetChannel}`);
-            // Show delegation naturally — Command talks like a leader, not a system
-            await this.replyTo(message, `Je mets **${delegateTo}** dessus.`);
-            await this.postInChannel(targetChannel, `${input.content}\n\n— *demande de Command pour Mohamed*`);
+            // Show delegation in Discord
+            await this.replyTo(message, `⏳ Je consulte **${delegateTo}**...`);
+            await this.postInChannel(targetChannel, `📩 **[Command → ${delegateTo}]** ${input.content}`);
             // Step 3: Call brain as the target agent WITH the original user message
             console.log(`${tag} Calling brain as ${delegateTo}...`);
-            try {
-                const delegatedResponse = await (0, brain_1.callBrain)({
-                    ...input,
-                    agentId: delegateTo,
-                    content: input.content, // Pass the ORIGINAL user request, not Command's delegation text
-                    senderType: 'agent',
-                    senderId: 'command',
-                    senderName: 'Command',
-                });
-                if (delegatedResponse.responseText) {
-                    // Post agent's response naturally in their channel
-                    await this.postInChannel(targetChannel, delegatedResponse.responseText);
-                    // Report back to user — Command relays naturally
-                    await this.replyTo(message, delegatedResponse.responseText);
-                }
-                else {
-                    console.warn(`${tag} Empty response from ${delegateTo}`);
-                    await this.postInChannel(targetChannel, `⚠️ **${delegateTo}** n'a pas pu traiter la demande (timeout)`);
-                    await this.replyTo(message, `⚠️ **${delegateTo}** n'a pas pu traiter cette demande — elle est trop complexe pour un seul appel. Essaie de la simplifier (ex: "5 sujets" au lieu de "30").`);
-                }
+            const delegatedResponse = await (0, brain_1.callBrain)({
+                ...input,
+                agentId: delegateTo,
+                content: input.content, // Pass the ORIGINAL user request, not Command's delegation text
+                senderType: 'agent',
+                senderId: 'command',
+                senderName: 'Command',
+            });
+            if (delegatedResponse.responseText) {
+                // Post agent's response in their channel (visible communication)
+                await this.postInChannel(targetChannel, `💬 **${delegateTo}:** ${delegatedResponse.responseText}`);
+                // Report back to user
+                await this.replyTo(message, `📋 **${delegateTo} a repondu :**\n${delegatedResponse.responseText}`);
             }
-            catch (delegateErr) {
-                console.error(`${tag} Delegation to ${delegateTo} failed:`, delegateErr);
-                await this.postInChannel(targetChannel, `❌ Erreur lors de la delegation Command → ${delegateTo}`);
-                await this.replyTo(message, `⚠️ **${delegateTo}** n'a pas repondu (timeout). La requete est peut-etre trop lourde — essaie avec moins d'elements.`);
+            else {
+                await this.replyTo(message, `${delegateTo} n'a pas pu repondre.`);
             }
         }
         else {
@@ -269,13 +184,7 @@ class ExpeditionBot {
                 channel.sendTyping().catch(() => { });
             }, 8_000);
             try {
-                // Deep Think for complex multi-agent requests (Command only)
-                if (this.config.agentId === 'command' && DEEP_THINK_RE.test(input.content)) {
-                    await this.handleDeepThink(message, input);
-                }
-                else {
-                    await this.handleTask(message, input);
-                }
+                await this.handleTask(message, input);
             }
             catch (err) {
                 console.error(`[${this.config.botName}] Task failed:`, err);
@@ -288,7 +197,9 @@ class ExpeditionBot {
                 clearInterval(typingInterval);
             }
         });
-        // --- Health check FIRST (Railway needs this before Discord login) ---
+        // --- Login ---
+        await this.client.login(this.token);
+        // --- Health check ---
         const port = process.env.PORT || 3000;
         const startTime = Date.now();
         http_1.default.createServer((_req, res) => {
@@ -299,8 +210,6 @@ class ExpeditionBot {
         }).on('error', (err) => {
             console.error(`[${this.config.botName}] HTTP error:`, err.message);
         });
-        // --- Login ---
-        await this.client.login(this.token);
     }
 }
 exports.ExpeditionBot = ExpeditionBot;

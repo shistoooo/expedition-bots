@@ -111,16 +111,14 @@ export class ExpeditionBot {
     }
 
     console.log(`${tag} Plan: ${plan.tasks.length} tasks → ${plan.tasks.map(t => t.agent).join(', ')}`);
-    const agentNames = plan.tasks.map(t => `**${t.agent}**`);
-    await this.replyTo(message, `Je lance ${agentNames.join(', ')} en parallele. Standby.`);
+    await this.replyTo(message, `🧠 **Reflexion profonde** — ${plan.tasks.length} sous-taches identifiees...\n${plan.tasks.map((t, i) => `${i + 1}. **${t.agent}** → ${t.question.slice(0, 60)}...`).join('\n')}`);
 
     // PHASE 2: PARALLEL EXECUTION — call each agent simultaneously
     console.log(`${tag} Phase 2: Executing ${plan.tasks.length} tasks in parallel...`);
     const results = await Promise.allSettled(
       plan.tasks.map(async (task) => {
         const ch = AGENT_CHANNELS[task.agent] || task.agent;
-        // Command posts the question naturally in the agent's channel
-        await this.postInChannel(ch, `${task.question}\n\n— *Command*`);
+        await this.postInChannel(ch, `📩 **[Command → ${task.agent}]** ${task.question}`);
 
         const r = await callBrain({
           ...input,
@@ -133,8 +131,7 @@ export class ExpeditionBot {
 
         const responseText = r.responseText || 'Pas de reponse';
         if (r.responseText) {
-          // Agent responds naturally in their own channel
-          await this.postInChannel(ch, r.responseText.slice(0, 1500));
+          await this.postInChannel(ch, `💬 **${task.agent}:** ${r.responseText.slice(0, 800)}`);
         }
         return { agent: task.agent, response: responseText };
       })
@@ -163,7 +160,7 @@ export class ExpeditionBot {
       content: `MODE SYNTHESE. Compile en reponse executive structuree.\nDemande originale: ${input.content}\n\nResultats des agents:\n${compiled}\n\nAjoute ton analyse strategique et 3 recommandations concretes.`,
     });
 
-    await this.replyTo(message, synthesis.responseText);
+    await this.replyTo(message, `📋 **Rapport complet :**\n${synthesis.responseText}`);
     console.log(`${tag} Done — synthesized ${fulfilled.length} agent responses`);
   }
 
@@ -188,9 +185,9 @@ export class ExpeditionBot {
       const targetChannel = AGENT_CHANNELS[delegateTo] || delegateTo;
       console.log(`${tag} Delegation detected → ${delegateTo} in #${targetChannel}`);
 
-      // Show delegation naturally — Command talks like a leader, not a system
-      await this.replyTo(message, `Je mets **${delegateTo}** dessus.`);
-      await this.postInChannel(targetChannel, `${input.content}\n\n— *demande de Command pour Mohamed*`);
+      // Show delegation in Discord
+      await this.replyTo(message, `⏳ Je consulte **${delegateTo}**...`);
+      await this.postInChannel(targetChannel, `📩 **[Command → ${delegateTo}]** ${input.content}`);
 
       // Step 3: Call brain as the target agent WITH the original user message
       console.log(`${tag} Calling brain as ${delegateTo}...`);
@@ -205,11 +202,11 @@ export class ExpeditionBot {
         });
 
         if (delegatedResponse.responseText) {
-          // Post agent's response naturally in their channel
-          await this.postInChannel(targetChannel, delegatedResponse.responseText);
+          // Post agent's response in their channel (visible communication)
+          await this.postInChannel(targetChannel, `💬 **${delegateTo}:** ${delegatedResponse.responseText}`);
 
-          // Report back to user — Command relays naturally
-          await this.replyTo(message, delegatedResponse.responseText);
+          // Report back to user
+          await this.replyTo(message, `📋 **${delegateTo} a repondu :**\n${delegatedResponse.responseText}`);
         } else {
           console.warn(`${tag} Empty response from ${delegateTo}`);
           await this.postInChannel(targetChannel, `⚠️ **${delegateTo}** n'a pas pu traiter la demande (timeout)`);
@@ -296,7 +293,10 @@ export class ExpeditionBot {
       }
     });
 
-    // --- Health check FIRST (Railway needs this before Discord login) ---
+    // --- Login ---
+    await this.client.login(this.token);
+
+    // --- Health check ---
     const port = process.env.PORT || 3000;
     const startTime = Date.now();
     http.createServer((_req, res) => {
@@ -307,8 +307,5 @@ export class ExpeditionBot {
     }).on('error', (err: Error) => {
       console.error(`[${this.config.botName}] HTTP error:`, err.message);
     });
-
-    // --- Login ---
-    await this.client.login(this.token);
   }
 }

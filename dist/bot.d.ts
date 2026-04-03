@@ -8,7 +8,6 @@ export declare class ExpeditionBot {
     constructor(config: BotConfig);
     private postInChannel;
     private replyTo;
-    private handleDeepThink;
     private handleTask;
     start(): Promise<void>;
 }
