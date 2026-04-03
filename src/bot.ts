@@ -26,6 +26,19 @@ function splitMessage(text: string, maxLength = 2000): string[] {
 // Detect delegation without actual data in response
 const DELEGATION_RE = /(?:transmis|d[ée]l[ée]gu[ée]|demand[ée]|envoy[ée]|consult).*(?:à|a)\s+(Studio|Sales|Wallet|Samus|SamSam)/i;
 
+// Detect if request is complex enough for Deep Think mode
+const DEEP_THINK_RE = /rapport complet|bilan|analyse compl[eè]te|r[eé]sum[eé] de tout|compare|crois[eé]|tout.*agent|r[eé]flexion profonde|rapport global/i;
+
+function extractJson(text: string): { tasks: Array<{ agent: string; question: string }> } | null {
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try {
+    const parsed = JSON.parse(match[0]);
+    if (parsed?.tasks && Array.isArray(parsed.tasks)) return parsed;
+    return null;
+  } catch { return null; }
+}
+
 function detectDelegation(text: string): string | null {
   const match = text.match(DELEGATION_RE);
   if (!match) return null;
@@ -77,6 +90,78 @@ export class ExpeditionBot {
     for (const chunk of splitMessage(text)) {
       await message.reply(chunk);
     }
+  }
+
+  // Deep Think mode: decompose → parallel execution → synthesis
+  // Only available for Command bot on Railway (no timeout)
+  private async handleDeepThink(message: Message, input: BrainInput): Promise<void> {
+    const tag = `[${this.config.botName}:DeepThink]`;
+
+    // PHASE 1: PLANIFICATION — ask Command to decompose into subtasks
+    console.log(`${tag} Phase 1: Planning...`);
+    const planResponse = await callBrain({
+      ...input,
+      content: `MODE PLANIFICATION. Decompose cette demande en sous-taches JSON.\nReponds UNIQUEMENT: {"tasks":[{"agent":"nom","question":"question precise"}]}\nMax 5 taches. Demande: ${input.content}`,
+    });
+
+    const plan = extractJson(planResponse.responseText);
+    if (!plan?.tasks?.length) {
+      console.log(`${tag} No valid plan — falling back to normal flow`);
+      return this.handleTask(message, input);
+    }
+
+    console.log(`${tag} Plan: ${plan.tasks.length} tasks → ${plan.tasks.map(t => t.agent).join(', ')}`);
+    await this.replyTo(message, `🧠 **Reflexion profonde** — ${plan.tasks.length} sous-taches identifiees...\n${plan.tasks.map((t, i) => `${i + 1}. **${t.agent}** → ${t.question.slice(0, 60)}...`).join('\n')}`);
+
+    // PHASE 2: PARALLEL EXECUTION — call each agent simultaneously
+    console.log(`${tag} Phase 2: Executing ${plan.tasks.length} tasks in parallel...`);
+    const results = await Promise.allSettled(
+      plan.tasks.map(async (task) => {
+        const ch = AGENT_CHANNELS[task.agent] || task.agent;
+        await this.postInChannel(ch, `📩 **[Command → ${task.agent}]** ${task.question}`);
+
+        const r = await callBrain({
+          ...input,
+          agentId: task.agent,
+          content: task.question,
+          senderType: 'agent',
+          senderId: 'command',
+          senderName: 'Command',
+        });
+
+        const responseText = r.responseText || 'Pas de reponse';
+        if (r.responseText) {
+          await this.postInChannel(ch, `💬 **${task.agent}:** ${r.responseText.slice(0, 800)}`);
+        }
+        return { agent: task.agent, response: responseText };
+      })
+    );
+
+    const fulfilled = results
+      .filter((r): r is PromiseFulfilledResult<{ agent: string; response: string }> => r.status === 'fulfilled')
+      .map(r => r.value);
+
+    const failed = results.filter(r => r.status === 'rejected').length;
+    console.log(`${tag} Phase 2 done: ${fulfilled.length} OK, ${failed} failed`);
+
+    if (fulfilled.length === 0) {
+      await this.replyTo(message, '⚠️ Aucun agent n\'a pu repondre. Essaie avec une demande plus simple.');
+      return;
+    }
+
+    // PHASE 3: SYNTHESIS — Command compiles everything
+    console.log(`${tag} Phase 3: Synthesis...`);
+    const compiled = fulfilled
+      .map(r => `[${r.agent}]: ${r.response}`)
+      .join('\n---\n');
+
+    const synthesis = await callBrain({
+      ...input,
+      content: `MODE SYNTHESE. Compile en reponse executive structuree.\nDemande originale: ${input.content}\n\nResultats des agents:\n${compiled}\n\nAjoute ton analyse strategique et 3 recommandations concretes.`,
+    });
+
+    await this.replyTo(message, `📋 **Rapport complet :**\n${synthesis.responseText}`);
+    console.log(`${tag} Done — synthesized ${fulfilled.length} agent responses`);
   }
 
   // The main work method — handles delegation, multi-agent calls, PDFs
@@ -192,7 +277,12 @@ export class ExpeditionBot {
       }, 8_000);
 
       try {
-        await this.handleTask(message, input);
+        // Deep Think for complex multi-agent requests (Command only)
+        if (this.config.agentId === 'command' && DEEP_THINK_RE.test(input.content)) {
+          await this.handleDeepThink(message, input);
+        } else {
+          await this.handleTask(message, input);
+        }
       } catch (err) {
         console.error(`[${this.config.botName}] Task failed:`, err);
         try {
