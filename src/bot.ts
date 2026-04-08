@@ -296,11 +296,13 @@ export class ExpeditionBot {
     // --- Login ---
     await this.client.login(this.token);
 
-    // --- Reminder poller (Command bot only) ---
-    // Polls melifeos /api/cron/reminder-tick every 60s to fire scheduled reminders.
-    // Vercel Hobby cron is daily-only, so this gives us minute-level precision via Railway.
+    // --- Reminder + Anomaly pollers (Command bot only) ---
+    // Polls melifeos endpoints to fire scheduled reminders (every 60s) and
+    // detect business anomalies (every 30 min). Both centralised on command-bot
+    // to avoid duplicate DMs from multiple bots.
     if (this.config.agentId === 'command') {
       this.startReminderPoller();
+      this.startAnomalyPoller();
     }
 
     // --- Health check ---
@@ -364,5 +366,56 @@ export class ExpeditionBot {
       setInterval(() => { void tick(); }, 60_000);
     }, 30_000);
     console.log('[Command:Poller] reminder poller scheduled (every 60s after 30s warmup)');
+  }
+
+  // Anomaly poller — Command bot only. Hits /api/cron/anomaly-tick every 30 min.
+  // Detects business KPI anomalies (MRR drop, payment failures spike) and DMs Mohamed.
+  // Uses Supabase alerts table for idempotence — same anomaly key won't re-fire.
+  private startAnomalyPoller(): void {
+    const brainBase = (process.env.BRAIN_URL || 'https://melifeos.vercel.app/api/agent-brain').replace(/\/api\/agent-brain$/, '');
+    const tickUrl = brainBase + '/api/cron/anomaly-tick';
+    const secret = process.env.AGENT_BRAIN_SECRET || '';
+    if (!secret) {
+      console.warn('[Command:AnomalyPoller] AGENT_BRAIN_SECRET not set, skipping');
+      return;
+    }
+
+    const tick = async (): Promise<void> => {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 25_000);
+        const resp = await fetch(tickUrl, {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + secret },
+          signal: controller.signal,
+        });
+        clearTimeout(timer);
+        if (!resp.ok) {
+          console.error('[Command:AnomalyPoller] HTTP ' + resp.status);
+          return;
+        }
+        const data = await resp.json() as { detected?: number; notified?: number; notified_keys?: string[]; errors?: Array<{ key: string; error: string }> };
+        if (data.notified && data.notified > 0) {
+          console.log('[Command:AnomalyPoller] notified ' + data.notified + ' anomaly(ies): ' + JSON.stringify(data.notified_keys));
+        }
+        if (data.errors && data.errors.length > 0) {
+          console.error('[Command:AnomalyPoller] errors: ' + JSON.stringify(data.errors));
+        }
+      } catch (err) {
+        const isAbort = err instanceof Error && err.name === 'AbortError';
+        if (isAbort) {
+          console.error('[Command:AnomalyPoller] timeout (25s)');
+        } else {
+          console.error('[Command:AnomalyPoller] error:', err instanceof Error ? err.message : 'unknown');
+        }
+      }
+    };
+
+    // Initial tick after 60s (let bot fully start), then every 30 min
+    setTimeout(() => {
+      void tick();
+      setInterval(() => { void tick(); }, 30 * 60_000);
+    }, 60_000);
+    console.log('[Command:AnomalyPoller] anomaly poller scheduled (every 30min after 60s warmup)');
   }
 }
