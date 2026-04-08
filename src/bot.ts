@@ -296,6 +296,13 @@ export class ExpeditionBot {
     // --- Login ---
     await this.client.login(this.token);
 
+    // --- Reminder poller (Command bot only) ---
+    // Polls melifeos /api/cron/reminder-tick every 60s to fire scheduled reminders.
+    // Vercel Hobby cron is daily-only, so this gives us minute-level precision via Railway.
+    if (this.config.agentId === 'command') {
+      this.startReminderPoller();
+    }
+
     // --- Health check ---
     const port = process.env.PORT || 3000;
     const startTime = Date.now();
@@ -307,5 +314,55 @@ export class ExpeditionBot {
     }).on('error', (err: Error) => {
       console.error(`[${this.config.botName}] HTTP error:`, err.message);
     });
+  }
+
+  // Reminder poller — only runs on Command bot. Hits /api/cron/reminder-tick every 60s.
+  // Centralizes reminder firing in one place to avoid duplicate DMs from multiple bots.
+  private startReminderPoller(): void {
+    const brainBase = (process.env.BRAIN_URL || 'https://melifeos.vercel.app/api/agent-brain').replace(/\/api\/agent-brain$/, '');
+    const tickUrl = brainBase + '/api/cron/reminder-tick';
+    const secret = process.env.AGENT_BRAIN_SECRET || '';
+    if (!secret) {
+      console.warn('[Command:Poller] AGENT_BRAIN_SECRET not set, skipping reminder poller');
+      return;
+    }
+
+    const tick = async (): Promise<void> => {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 25_000);
+        const resp = await fetch(tickUrl, {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + secret },
+          signal: controller.signal,
+        });
+        clearTimeout(timer);
+        if (!resp.ok) {
+          console.error('[Command:Poller] reminder-tick HTTP ' + resp.status);
+          return;
+        }
+        const data = await resp.json() as { sent?: number; processed?: number[]; failed?: Array<{ id: number; error: string }> };
+        if (data.sent && data.sent > 0) {
+          console.log('[Command:Poller] fired ' + data.sent + ' reminder(s): ' + JSON.stringify(data.processed));
+        }
+        if (data.failed && data.failed.length > 0) {
+          console.error('[Command:Poller] ' + data.failed.length + ' reminder(s) failed: ' + JSON.stringify(data.failed));
+        }
+      } catch (err) {
+        const isAbort = err instanceof Error && err.name === 'AbortError';
+        if (isAbort) {
+          console.error('[Command:Poller] reminder-tick timeout (25s)');
+        } else {
+          console.error('[Command:Poller] reminder-tick error:', err instanceof Error ? err.message : 'unknown');
+        }
+      }
+    };
+
+    // Initial tick after 30s (let Discord login settle), then every 60s
+    setTimeout(() => {
+      void tick();
+      setInterval(() => { void tick(); }, 60_000);
+    }, 30_000);
+    console.log('[Command:Poller] reminder poller scheduled (every 60s after 30s warmup)');
   }
 }
