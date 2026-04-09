@@ -42,7 +42,7 @@ export const AGENT_CHANNELS: Record<string, string> = {
   studio: 'youtube',
   sales: 'sales',
   wallet: 'wallet',
-  samus: 'général',
+  samus: 'samus',
   samsam: 'support',
   command: 'briefing',
 };
