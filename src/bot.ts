@@ -29,13 +29,34 @@ const DELEGATION_RE = /(?:transmis|d[ée]l[ée]gu[ée]|demand[ée]|envoy[ée]|co
 // Detect if request is complex enough for Deep Think mode
 const DEEP_THINK_RE = /rapport complet|bilan|analyse compl[eè]te|r[eé]sum[eé] de tout|compare|crois[eé]|tout.*agent|r[eé]flexion profonde|rapport global/i;
 
+// Valid agent IDs that Command can delegate to. Gemini sometimes hallucinates
+// agent names like "market" or "strategy" — those must be filtered out.
+const VALID_AGENT_IDS = new Set(['wallet', 'studio', 'sales', 'samus', 'samsam', 'command']);
+
 function extractJson(text: string): { tasks: Array<{ agent: string; question: string }> } | null {
   const match = text.match(/\{[\s\S]*\}/);
   if (!match) return null;
   try {
     const parsed = JSON.parse(match[0]);
-    if (parsed?.tasks && Array.isArray(parsed.tasks)) return parsed;
-    return null;
+    if (!parsed?.tasks || !Array.isArray(parsed.tasks)) return null;
+
+    // Bug D fix: validate each task shape BEFORE calling callBrain. Gemini sometimes
+    // returns tasks with {agent: undefined} or {question: ""} which causes the brain
+    // to reject with "Missing agentId or content" 400. Filter aggressively.
+    const validTasks: Array<{ agent: string; question: string }> = [];
+    for (const t of parsed.tasks) {
+      if (!t || typeof t !== 'object') continue;
+      const agent = typeof t.agent === 'string' ? t.agent.trim().toLowerCase() : '';
+      const question = typeof t.question === 'string' ? t.question.trim() : '';
+      if (!agent || !question) continue;
+      if (!VALID_AGENT_IDS.has(agent)) {
+        console.warn(`[extractJson] Skipping task with invalid agent="${agent}"`);
+        continue;
+      }
+      validTasks.push({ agent, question });
+    }
+    if (validTasks.length === 0) return null;
+    return { tasks: validTasks };
   } catch { return null; }
 }
 
