@@ -154,7 +154,7 @@ export class ExpeditionBot {
         if (r.responseText) {
           await this.postInChannel(ch, `💬 **${task.agent}:** ${r.responseText.slice(0, 800)}`);
         }
-        return { agent: task.agent, response: responseText };
+        return { agent: task.agent, response: responseText.slice(0, 1500) };
       })
     );
 
