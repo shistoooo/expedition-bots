@@ -83,6 +83,7 @@ export class ExpeditionBot {
     this.client = new Client({
       intents: [
         GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMembers,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.DirectMessages,
@@ -270,19 +271,30 @@ export class ExpeditionBot {
       const isDM = !message.guild;
       const isTargetChannel = message.channel.id === this.targetChannelId;
       if (!isDM && !isTargetChannel) return;
-      if (isDM && message.author.id !== MOHAMED_USER_ID) return;
 
-      console.log(`[${this.config.botName}] ${message.author.username}: "${message.content.slice(0, 60)}"`);
+      // Accept DMs from any Expedition HQ guild member (not just Mohamed)
+      if (isDM && message.author.id !== MOHAMED_USER_ID) {
+        // Verify sender is a member of the guild
+        const guild = this.client.guilds.cache.first();
+        if (guild) {
+          const member = guild.members.cache.get(message.author.id)
+            || await guild.members.fetch(message.author.id).catch(() => null);
+          if (!member) return; // Not a server member, ignore
+        }
+      }
+
+      const isOwner = message.author.id === MOHAMED_USER_ID;
+      console.log(`[${this.config.botName}] ${message.author.username}${isOwner ? '' : ' (participant)'}: "${message.content.slice(0, 60)}"`);
 
       const input: BrainInput = {
         agentId: this.config.agentId,
-        userId: MOHAMED_USER_ID,
+        userId: message.author.id,  // Discord ID — brain resolves to Supabase UUID
         content: message.content,
         sourceChannel: isDM ? 'discord_dm' : 'discord_channel',
         sourceChannelId: isDM ? undefined : message.channel.id,
         senderId: message.author.id,
         senderName: message.author.displayName || message.author.username,
-        senderType: 'user',
+        senderType: isOwner ? 'user' : 'participant',
       };
 
       // ALL tasks go through handleTask (background, no timeout)
